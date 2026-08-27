@@ -10,7 +10,7 @@ to anonymous callers.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/klair/wallarchy.git --enable --yes
+omarchy plugin add https://github.com/perminder-klair/wallarchy.git --enable --yes
 ```
 
 ## Using it
