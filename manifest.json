@@ -5,11 +5,20 @@
   "version": "0.1.0",
   "author": "klair",
   "license": "MIT",
-  "description": "Browse Unsplash by category, set any photo as your Omarchy background, and rotate wallpapers on a timer.",
+  "description": "Browse Wallhaven by category or tag, set any wallpaper as your Omarchy background, and rotate on a timer.",
   "homepage": "https://github.com/klair/omasplash",
   "repository": "https://github.com/klair/omasplash",
-  "keywords": ["wallpaper", "background", "unsplash", "photos"],
-  "kinds": ["bar-widget", "overlay", "service"],
+  "keywords": [
+    "wallpaper",
+    "background",
+    "wallhaven",
+    "photos"
+  ],
+  "kinds": [
+    "bar-widget",
+    "overlay",
+    "service"
+  ],
   "keepLoaded": true,
   "entryPoints": {
     "barWidget": "BarWidget.qml",
@@ -18,20 +27,20 @@
   },
   "barWidget": {
     "displayName": "Omasplash",
-    "description": "Unsplash wallpaper browser and rotation",
+    "description": "Wallhaven wallpaper browser and rotation",
     "category": "Appearance",
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "showCredit": false
+      "showLabel": false
     },
     "schema": [
       {
-        "key": "showCredit",
+        "key": "showLabel",
         "type": "boolean",
-        "label": "Show photographer in the bar",
+        "label": "Show wallpaper size in the bar",
         "defaultValue": false,
-        "description": "Filters, rotation interval, and the access key live in the browser overlay (~/.config/omarchy/omasplash.json), not here — they are shared with the rotation service and the CLI."
+        "description": "Filters and the rotation interval live in the browser overlay (~/.config/omarchy/omasplash.json), not here \u2014 they are shared with the rotation service and the CLI."
       }
     ]
   }

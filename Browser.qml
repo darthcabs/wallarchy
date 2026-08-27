@@ -7,13 +7,11 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Fullscreen browser overlay: search, category chips, a thumbnail grid, and
-// the rotation controls.
+// Fullscreen browser overlay: search, category and tag filters, a thumbnail
+// grid, and the rotation controls.
 //
-// Thumbnails are loaded straight from Unsplash's CDN by QML's Image loader
-// rather than downloaded first. That is both faster and what the API terms
-// ask for — only a photo the user actually applies gets downloaded, and only
-// then does the CLI ping the download endpoint.
+// Thumbnails are loaded straight from Wallhaven's CDN by QML's Image loader.
+// Only a wallpaper the user actually applies gets downloaded to disk.
 Item {
   id: root
 
@@ -24,14 +22,13 @@ Item {
   property bool opened: false
   property bool loading: false
   property bool applying: false
-  property bool hasKey: false
   property string errorText: ""
-  property string keyDraft: ""
 
   property string filterText: ""
-  property string topic: ""
   property string query: ""
-  property string orientation: "landscape"
+  property string categories: "100"
+  property string sorting: "toplist"
+  property string atleast: "1920x1080"
   property int rotateMinutes: 0
   property int page: 1
   property int selectedIndex: 0
@@ -45,26 +42,17 @@ Item {
   readonly property color scrim: Color.menu.scrim
   readonly property color accent: Color.accent
 
-  readonly property int cardWidth: Math.min(hasKey ? Style.space(1100) : Style.space(620),
-    panel.width - Style.gapsOut * 4)
-  // The key form is a two-line prompt; giving it the full browsing card makes
-  // an empty box the first thing a new user sees.
-  readonly property int cardHeight: hasKey
-    ? Math.min(Style.space(760), panel.height - Style.gapsOut * 4)
-    : Math.min(Style.space(210), panel.height - Style.gapsOut * 4)
+  readonly property int cardWidth: Math.min(Style.space(1100), panel.width - Style.gapsOut * 4)
+  readonly property int cardHeight: Math.min(Style.space(760), panel.height - Style.gapsOut * 4)
 
   // ------------------------------------------------------------- lifecycle
 
   function open(payloadJson) {
     opened = true
     errorText = ""
-    keyDraft = ""
     selectedIndex = 0
-    checkKey()
-    Qt.callLater(function() {
-      if (root.hasKey) searchField.forceActiveFocus()
-      else keyField.forceActiveFocus()
-    })
+    if (photoModel.count === 0) loadPage()
+    Qt.callLater(function() { searchField.forceActiveFocus() })
   }
 
   function close() {
@@ -80,9 +68,10 @@ Item {
 
   function applyConfig(raw) {
     var config = Model.parseJson(raw, {}, 65536)
-    topic = typeof config.topic === "string" ? config.topic : ""
     query = typeof config.query === "string" ? config.query : ""
-    orientation = typeof config.orientation === "string" ? config.orientation : "landscape"
+    categories = Model.normalizeBits(config.categories || "100")
+    sorting = typeof config.sorting === "string" && config.sorting !== "" ? config.sorting : "toplist"
+    atleast = typeof config.atleast === "string" ? config.atleast : ""
     var minutes = Number(config.rotateMinutes)
     rotateMinutes = isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0
     // Don't yank the field out from under someone mid-type; the config file
@@ -96,12 +85,12 @@ Item {
   // Config changes are written through the CLI rather than edited in place, so
   // the file has exactly one writer and the service's watcher sees a complete
   // document instead of a half-written one.
+  property var configQueue: []
+
   function setConfig(key, value, thenReload) {
     configQueue.push({ key: key, value: String(value), reload: thenReload === true })
     drainConfigQueue()
   }
-
-  property var configQueue: []
 
   function drainConfigQueue() {
     if (configProcess.running || configQueue.length === 0) return
@@ -113,25 +102,6 @@ Item {
 
   // --------------------------------------------------------------- loading
 
-  function checkKey() {
-    if (keyProcess.running) return
-    keyProcess.command = [root.cliPath, "key", "status"]
-    keyProcess.running = true
-  }
-
-  function saveKey() {
-    var value = root.keyDraft.trim()
-    if (value === "" || keySaveProcess.running) return
-    keySaveProcess.command = [root.cliPath, "key", "set", value]
-    keySaveProcess.running = true
-  }
-
-  function loadTopics() {
-    if (topicProcess.running || topicModel.count > 0) return
-    topicProcess.command = [root.cliPath, "topics"]
-    topicProcess.running = true
-  }
-
   function reload() {
     page = 1
     photoModel.clear()
@@ -140,7 +110,7 @@ Item {
   }
 
   function loadPage() {
-    if (photoProcess.running || !hasKey) return
+    if (photoProcess.running) return
     loading = true
     errorText = ""
     photoProcess.command = [root.cliPath, "photos", String(page)]
@@ -148,7 +118,7 @@ Item {
   }
 
   function loadMore() {
-    if (loading || photoModel.count === 0 || page >= 20) return
+    if (loading || photoModel.count === 0 || page >= 30) return
     page += 1
     loadPage()
   }
@@ -156,7 +126,7 @@ Item {
   function applyPhotos(raw) {
     var rows = Model.photoRows(Model.parseJson(raw, [], 4194304))
     if (rows.length === 0 && photoModel.count === 0) {
-      errorText = "No photos came back. Check the filter, or your API rate limit."
+      errorText = "Nothing matched. Try a broader search, another category, or a smaller minimum size."
       return
     }
     for (var i = 0; i < rows.length; i++) photoModel.append(rows[i])
@@ -167,35 +137,42 @@ Item {
   function search(value) {
     var next = Model.singleLine(value, 120)
     root.query = next
-    // A free-text search and a topic are mutually exclusive on the API side,
-    // so committing one clears the other rather than silently winning.
     setConfig("query", next)
-    if (next !== "") setConfig("topic", "")
     reload()
   }
 
-  function selectTopic(slug) {
-    root.topic = slug
-    root.query = ""
-    root.filterText = ""
-    setConfig("topic", slug)
-    setConfig("query", "")
+  function selectTag(tag) {
+    root.query = tag
+    root.filterText = tag
+    searchField.text = tag
+    setConfig("query", tag)
     reload()
   }
 
-  function cycleOrientation() {
-    var index = Model.ORIENTATIONS.indexOf(root.orientation)
-    var next = Model.ORIENTATIONS[(index + 1) % Model.ORIENTATIONS.length]
-    root.orientation = next
-    setConfig("orientation", next)
+  function toggleCategory(index) {
+    var next = Model.toggleBit(root.categories, index)
+    if (next === root.categories) return
+    root.categories = next
+    setConfig("categories", next)
+    reload()
+  }
+
+  function cycleSorting() {
+    var next = Model.nextIn(Model.SORTINGS, root.sorting)
+    root.sorting = next
+    setConfig("sorting", next)
+    reload()
+  }
+
+  function cycleResolution() {
+    var next = Model.nextIn(Model.RESOLUTIONS, root.atleast)
+    root.atleast = next
+    setConfig("atleast", next)
     reload()
   }
 
   function cycleInterval() {
-    var index = 0
-    for (var i = 0; i < Model.INTERVALS.length; i++)
-      if (Model.INTERVALS[i].minutes === root.rotateMinutes) index = i
-    var next = Model.INTERVALS[(index + 1) % Model.INTERVALS.length].minutes
+    var next = Model.nextInterval(root.rotateMinutes)
     root.rotateMinutes = next
     setConfig("rotateMinutes", next)
   }
@@ -222,7 +199,6 @@ Item {
   // ------------------------------------------------------------ data + ipc
 
   ListModel { id: photoModel }
-  ListModel { id: topicModel }
 
   FileView {
     path: Quickshell.env("HOME") + "/.config/omarchy/omasplash.json"
@@ -234,45 +210,6 @@ Item {
   }
 
   Process {
-    id: keyProcess
-    command: []
-    onExited: function(code) {
-      root.hasKey = code === 0
-      if (root.hasKey) {
-        root.loadTopics()
-        if (photoModel.count === 0) root.loadPage()
-      }
-    }
-  }
-
-  Process {
-    id: keySaveProcess
-    command: []
-    onExited: function(code) {
-      root.keyDraft = ""
-      keyField.text = ""
-      if (code === 0) {
-        root.checkKey()
-        Qt.callLater(function() { searchField.forceActiveFocus() })
-      } else {
-        root.errorText = "Could not save the key."
-      }
-    }
-  }
-
-  Process {
-    id: topicProcess
-    command: []
-    stdout: StdioCollector { id: topicOutput; waitForEnd: true }
-    onExited: function(code) {
-      if (code !== 0) return
-      var rows = Model.topicRows(Model.parseJson(topicOutput.text, [], 262144))
-      topicModel.clear()
-      for (var i = 0; i < rows.length; i++) topicModel.append(rows[i])
-    }
-  }
-
-  Process {
     id: photoProcess
     command: []
     stdout: StdioCollector { id: photoOutput; waitForEnd: true }
@@ -280,7 +217,7 @@ Item {
     onExited: function(code) {
       root.loading = false
       if (code !== 0) {
-        root.errorText = Model.singleLine(photoError.text, 160) || "Unsplash request failed."
+        root.errorText = Model.singleLine(photoError.text, 160) || "Wallhaven request failed."
         return
       }
       root.applyPhotos(photoOutput.text)
@@ -355,64 +292,16 @@ Item {
         anchors.margins: Style.space(20)
         spacing: Style.space(14)
 
-        // ------------------------------------------------------- key setup
-
-        Column {
-          width: parent.width
-          spacing: Style.space(10)
-          visible: !root.hasKey
-
-          Text {
-            text: "Add an Unsplash Access Key"
-            color: root.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.title
-          }
-
-          Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Create a free app at unsplash.com/oauth/applications and paste its Access Key. "
-              + "It is stored with 0600 permissions in ~/.config/omarchy/omasplash.key, never in shell.json."
-            color: Qt.darker(root.foreground, 1.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-
-          Row {
-            width: parent.width
-            spacing: Style.space(10)
-
-            TextField {
-              id: keyField
-              width: parent.width - saveKeyButton.width - Style.space(10)
-              password: true
-              placeholderText: "Access Key"
-              onTextChanged: root.keyDraft = text
-              onAccepted: root.saveKey()
-              Keys.onEscapePressed: root.dismiss()
-            }
-
-            Button {
-              id: saveKeyButton
-              text: "Save"
-              bordered: true
-              onClicked: root.saveKey()
-            }
-          }
-        }
-
-        // ---------------------------------------------------------- search
+        // ---------------------------------------------------- search + row
 
         Row {
           width: parent.width
           spacing: Style.space(10)
-          visible: root.hasKey
 
           TextField {
             id: searchField
             width: parent.width - controls.width - Style.space(10)
-            placeholderText: "Search Unsplash — or pick a category below"
+            placeholderText: "Search Wallhaven — or pick a tag below"
             onTextChanged: root.filterText = text
             onAccepted: root.search(text)
             Keys.onDownPressed: grid.forceActiveFocus()
@@ -424,10 +313,17 @@ Item {
             spacing: Style.space(8)
 
             Button {
-              text: root.orientation
-              tooltipText: "Orientation filter"
+              text: Model.labelFor(Model.SORTINGS, root.sorting, "Top")
+              tooltipText: "Sort order"
               bordered: true
-              onClicked: root.cycleOrientation()
+              onClicked: root.cycleSorting()
+            }
+
+            Button {
+              text: Model.labelFor(Model.RESOLUTIONS, root.atleast, "Any size")
+              tooltipText: "Minimum resolution"
+              bordered: true
+              onClicked: root.cycleResolution()
             }
 
             Button {
@@ -439,9 +335,8 @@ Item {
             }
 
             Button {
-              iconText: "󰒲"
               text: "Surprise me"
-              tooltipText: "Apply a random photo matching the current filter"
+              tooltipText: "Apply a random wallpaper matching the current filters"
               bordered: true
               enabled: !root.applying
               onClicked: root.randomNow()
@@ -449,37 +344,56 @@ Item {
           }
         }
 
-        // ------------------------------------------------------ topic chips
+        // ------------------------------------------------ categories + tags
 
         Flickable {
           width: parent.width
-          height: topicRow.height
-          visible: root.hasKey && topicModel.count > 0
-          contentWidth: topicRow.width
+          height: chipRow.height
+          contentWidth: chipRow.width
           flickableDirection: Flickable.HorizontalFlick
           clip: true
 
           Row {
-            id: topicRow
+            id: chipRow
             spacing: Style.space(8)
+
+            Repeater {
+              model: Model.CATEGORY_LABELS
+
+              Button {
+                required property int index
+                required property string modelData
+                text: modelData
+                tooltipText: "Wallhaven category"
+                bordered: true
+                selected: Model.bitAt(root.categories, index)
+                onClicked: root.toggleCategory(index)
+              }
+            }
+
+            Rectangle {
+              anchors.verticalCenter: parent.verticalCenter
+              width: 1
+              height: Style.space(18)
+              color: root.borderColor
+            }
 
             Button {
               text: "All"
               bordered: true
-              selected: root.topic === "" && root.query === ""
-              onClicked: root.selectTopic("")
+              selected: root.query === ""
+              onClicked: root.selectTag("")
             }
 
             Repeater {
-              model: topicModel
+              model: Model.TAGS
 
               Button {
-                required property string slug
-                required property string title
-                text: title
+                required property string modelData
+                text: modelData
                 bordered: true
-                selected: root.topic === slug && root.query === ""
-                onClicked: root.selectTopic(slug)
+                selected: root.query === modelData
+                onClicked: root.selectTag(modelData)
               }
             }
           }
@@ -490,18 +404,17 @@ Item {
         Item {
           width: parent.width
           // The Column hands out `y`; clamping keeps the grid from taking a
-          // negative height on the short key-setup card.
+          // negative height on a very short card.
           height: Math.max(0, parent.height - y)
 
           GridView {
             id: grid
             anchors.fill: parent
-            visible: root.hasKey
             clip: true
-            focus: root.opened && root.hasKey
+            focus: root.opened
             model: photoModel
             cellWidth: Math.floor(width / Math.max(1, Math.floor(width / Style.space(260))))
-            cellHeight: Math.round(cellWidth * 0.66)
+            cellHeight: Math.round(cellWidth * 0.6)
             currentIndex: root.selectedIndex
             onCurrentIndexChanged: root.selectedIndex = currentIndex
             onAtYEndChanged: if (atYEnd) root.loadMore()
@@ -515,8 +428,7 @@ Item {
               required property int index
               required property string thumb
               required property string color
-              required property string alt
-              required property string user
+              required property string label
               required property string json
 
               width: grid.cellWidth
@@ -526,8 +438,8 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Style.space(4)
                 radius: Style.cornerRadius
-                // The API hands back a dominant colour per photo; using it as
-                // the placeholder means the grid never flashes empty boxes.
+                // The API hands back a dominant colour per wallpaper; using it
+                // as the placeholder means the grid never flashes empty boxes.
                 color: cell.color
                 border.width: grid.currentIndex === cell.index ? 2 : 0
                 border.color: root.accent
@@ -547,15 +459,15 @@ Item {
 
                 Rectangle {
                   anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-                  height: creditLabel.implicitHeight + Style.space(10)
+                  height: labelText.implicitHeight + Style.space(10)
                   visible: cellArea.containsMouse || grid.currentIndex === cell.index
                   color: Qt.rgba(0, 0, 0, 0.6)
 
                   Text {
-                    id: creditLabel
+                    id: labelText
                     anchors.fill: parent
                     anchors.margins: Style.space(5)
-                    text: cell.user ? "Photo by " + cell.user : cell.alt
+                    text: cell.label
                     color: "#ffffff"
                     elide: Text.ElideRight
                     font.family: Style.font.family

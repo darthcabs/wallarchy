@@ -19,19 +19,19 @@ BarWidget {
   readonly property string home: Quickshell.env("HOME")
 
   property var photo: ({})
-  property bool hasKey: false
   property int rotateMinutes: 0
-  property string filterLabel: ""
+  property string query: ""
+  property string categories: "100"
   property bool working: false
 
-  readonly property bool showCredit: setting("showCredit", false) === true
-  readonly property string creditText: Model.singleLine(photo && photo.user ? photo.user : "", 24)
+  readonly property bool showLabel: setting("showLabel", false) === true
+  readonly property string labelText: Model.singleLine(photo && photo.label ? photo.label : "", 24)
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string tooltipText: Model.barTooltip({
-    hasKey: hasKey,
     photo: photo,
-    filterLabel: filterLabel,
+    query: query,
+    categories: categories,
     rotateMinutes: rotateMinutes
   })
 
@@ -41,7 +41,8 @@ BarWidget {
     var config = Model.parseJson(raw, {}, 65536)
     var minutes = Number(config.rotateMinutes)
     rotateMinutes = isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0
-    filterLabel = Model.singleLine(config.query || config.topic || "", 40)
+    query = Model.singleLine(config.query || "", 40)
+    categories = Model.normalizeBits(config.categories || "100")
   }
 
   function applyCurrent(raw) {
@@ -91,13 +92,6 @@ BarWidget {
   }
 
   Process {
-    id: keyProcess
-    command: [root.cliPath, "key", "status"]
-    running: true
-    onExited: function(code) { root.hasKey = code === 0 }
-  }
-
-  Process {
     id: nextProcess
     command: []
     onExited: root.working = false
@@ -120,7 +114,7 @@ BarWidget {
       text: root.rotateMinutes > 0 ? "󰑖" : "󰋩"
       fontFamily: root.fontFamily
       fontSize: Style.font.icon
-      color: root.hasKey ? root.foreground : Qt.darker(root.foreground, 1.8)
+      color: root.foreground
       opacity: root.working ? 0.5 : 1
 
       Behavior on opacity { NumberAnimation { duration: 120 } }
@@ -128,8 +122,8 @@ BarWidget {
 
     Text {
       anchors.verticalCenter: parent.verticalCenter
-      visible: root.showCredit && root.creditText !== "" && !root.vertical
-      text: root.creditText
+      visible: root.showLabel && root.labelText !== "" && !root.vertical
+      text: root.labelText
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
