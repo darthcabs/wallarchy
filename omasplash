@@ -1,0 +1,345 @@
+#!/bin/bash
+# omasplash — Unsplash wallpapers for Omarchy.
+#
+# All network and JSON work lives here so the QML side stays a thin renderer:
+# every plugin surface (bar widget, overlay, rotation service) shells out to
+# this script and parses the JSON it prints on stdout.
+#
+# The access key is never passed on argv — curl reads it from stdin as a
+# config block, so it stays out of `ps` output.
+
+set -uo pipefail
+
+CONFIG_FILE="${OMASPLASH_CONFIG:-$HOME/.config/omarchy/omasplash.json}"
+KEY_FILE="${OMASPLASH_KEY_FILE:-$HOME/.config/omarchy/omasplash.key}"
+STATE_DIR="${OMASPLASH_STATE_DIR:-$HOME/.local/state/omasplash}"
+CURRENT_FILE="$STATE_DIR/current.json"
+API="https://api.unsplash.com"
+UTM="utm_source=omasplash&utm_medium=referral"
+
+# Every file omasplash writes carries this prefix, so pruning can never touch
+# a wallpaper that came with the theme or that the user dropped in by hand.
+FILE_PREFIX="unsplash-"
+
+die() { echo "omasplash: $*" >&2; exit 1; }
+
+notify() {
+  command -v omarchy-notification-send >/dev/null 2>&1 &&
+    omarchy-notification-send "omasplash" "$1" -t "${2:-3000}" >/dev/null 2>&1 &
+  return 0
+}
+
+# ---------------------------------------------------------------- config
+
+DEFAULT_CONFIG='{
+  "version": 1,
+  "query": "",
+  "topic": "wallpapers",
+  "orientation": "landscape",
+  "contentFilter": "high",
+  "rotateMinutes": 0,
+  "downloadDir": "",
+  "keepLast": 20,
+  "width": 0
+}'
+
+ensure_config() {
+  [[ -f $CONFIG_FILE ]] && return 0
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  printf '%s\n' "$DEFAULT_CONFIG" >"$CONFIG_FILE"
+}
+
+# Read one key, falling back to the shipped default when the user's file is
+# older than the setting or has been hand-edited into an invalid shape.
+cfg() {
+  ensure_config
+  jq -r --arg k "$1" --argjson d "$DEFAULT_CONFIG" \
+    'if (.[$k] == null) then ($d[$k] // "") else .[$k] end' "$CONFIG_FILE" 2>/dev/null ||
+    printf '%s' "$(jq -r --arg k "$1" '.[$k] // ""' <<<"$DEFAULT_CONFIG")"
+}
+
+# Keys whose values are JSON numbers rather than strings. Deciding by key
+# rather than by "does this parse as JSON" keeps a search for `2024` from
+# silently becoming a number.
+NUMERIC_KEYS=" rotateMinutes keepLast width version "
+
+cfg_set() {
+  ensure_config
+  local key=$1 value=$2 tmp
+  if [[ $NUMERIC_KEYS == *" $key "* ]]; then
+    [[ $value =~ ^-?[0-9]+$ ]] || die "$key must be a whole number, got: $value"
+    tmp=$(jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$CONFIG_FILE")
+  else
+    tmp=$(jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE")
+  fi
+  [[ -n $tmp ]] || die "failed to update $key"
+  printf '%s\n' "$tmp" >"$CONFIG_FILE"
+}
+
+# ---------------------------------------------------------------- api key
+
+key_present() { [[ -s $KEY_FILE ]]; }
+
+key_set() {
+  local key=${1:-}
+  [[ -n $key ]] || read -rsp "Unsplash Access Key: " key && echo
+  [[ -n $key ]] || die "no key given"
+  mkdir -p "$(dirname "$KEY_FILE")"
+  umask 077
+  printf '%s\n' "$key" >"$KEY_FILE"
+  chmod 600 "$KEY_FILE"
+  echo "Saved to $KEY_FILE"
+}
+
+# curl config written to stdin: the key never appears in the process list.
+curl_config() {
+  printf 'header = "Authorization: Client-ID %s"\n' "$(<"$KEY_FILE")"
+  printf 'header = "Accept-Version: v1"\n'
+}
+
+api() {
+  key_present || die "no access key — run: omasplash key set <key>"
+  curl_config | curl -fsS --max-time 20 -K - "$1"
+}
+
+# ---------------------------------------------------------------- photos
+
+# Collapse an Unsplash photo object down to the handful of fields the UI
+# actually renders. Keeping the shape stable here means the QML never has to
+# know about the API's nesting.
+NORMALIZE='{
+  id: .id,
+  thumb: .urls.thumb,
+  preview: .urls.small,
+  raw: .urls.raw,
+  color: (.color // "#222222"),
+  alt: ((.alt_description // .description // "Untitled") | gsub("\\s+"; " ")),
+  user: (.user.name // "Unknown"),
+  userLink: ((.user.links.html // "https://unsplash.com") + "?'"$UTM"'"),
+  download: (.links.download_location // "")
+}'
+
+query_params() {
+  local orientation content
+  orientation=$(cfg orientation)
+  content=$(cfg contentFilter)
+  [[ -n $orientation && $orientation != any ]] && printf '&orientation=%s' "$orientation"
+  [[ -n $content ]] && printf '&content_filter=%s' "$content"
+  return 0
+}
+
+urlencode() { jq -rn --arg v "$1" '$v|@uri'; }
+
+cmd_topics() {
+  api "$API/topics?per_page=40&order_by=featured" |
+    jq -c '[.[] | {slug: .slug, title: .title}]'
+}
+
+cmd_search() {
+  local query=${1:-} page=${2:-1}
+  [[ -n $query ]] || die "usage: omasplash search <query> [page]"
+  api "$API/search/photos?query=$(urlencode "$query")&per_page=30&page=$page$(query_params)" |
+    jq -c "[.results[] | $NORMALIZE]"
+}
+
+# The browser's default view: whatever the config says the user is into.
+cmd_photos() {
+  local page=${1:-1} query topic
+  query=$(cfg query)
+  topic=$(cfg topic)
+  if [[ -n $query ]]; then
+    cmd_search "$query" "$page"
+  elif [[ -n $topic ]]; then
+    api "$API/topics/$(urlencode "$topic")/photos?per_page=30&page=$page$(query_params)" |
+      jq -c "[.[] | $NORMALIZE]"
+  else
+    api "$API/photos?per_page=30&page=$page&order_by=latest" |
+      jq -c "[.[] | $NORMALIZE]"
+  fi
+}
+
+cmd_random() {
+  local query topic url
+  query=$(cfg query)
+  topic=$(cfg topic)
+  url="$API/photos/random?count=1$(query_params)"
+  if [[ -n $query ]]; then
+    url+="&query=$(urlencode "$query")"
+  elif [[ -n $topic ]]; then
+    url+="&topics=$(urlencode "$topic")"
+  fi
+  api "$url" | jq -c "first(.[] | $NORMALIZE)"
+}
+
+# ---------------------------------------------------------------- applying
+
+current_theme() {
+  cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || echo "default"
+}
+
+# Default to the current theme's user background folder so downloads join the
+# native per-theme pool and `omarchy theme bg next` cycles them for free.
+target_dir() {
+  local dir
+  dir=$(cfg downloadDir)
+  [[ -n $dir ]] || dir="$HOME/.config/omarchy/backgrounds/$(current_theme)"
+  printf '%s' "${dir/#\~/$HOME}"
+}
+
+# Ask Unsplash for the image at roughly the width of the widest monitor
+# instead of pulling a 6000px original for a 3440px screen.
+target_width() {
+  local width
+  width=$(cfg width)
+  if [[ $width =~ ^[0-9]+$ ]] && ((width > 0)); then
+    printf '%s' "$width"
+    return
+  fi
+  hyprctl -j monitors 2>/dev/null |
+    jq -r '[.[].width] | max // 3840' 2>/dev/null || echo 3840
+}
+
+# Unsplash requires this to be hit whenever a photo is actually used, and
+# explicitly not for previews. It is a bare ping; the response is discarded.
+track_download() {
+  local location=$1
+  [[ -n $location && $location != null ]] || return 0
+  (curl_config | curl -fsS --max-time 10 -K - "$location" >/dev/null 2>&1 &)
+}
+
+apply_photo_json() {
+  local photo=$1 id url dir dest width
+  id=$(jq -r '.id' <<<"$photo")
+  [[ -n $id && $id != null ]] || die "photo json has no id"
+
+  dir=$(target_dir)
+  mkdir -p "$dir" || die "cannot create $dir"
+  dest="$dir/$FILE_PREFIX$id.jpg"
+  width=$(target_width)
+
+  if [[ ! -s $dest ]]; then
+    url="$(jq -r '.raw' <<<"$photo")&w=$width&q=85&fm=jpg&fit=max"
+    local tmp
+    tmp=$(mktemp "$dir/.$FILE_PREFIX$id.XXXXXX") || die "cannot write to $dir"
+    if ! curl -fsSL --max-time 60 -o "$tmp" "$url"; then
+      rm -f "$tmp"
+      notify "Download failed"
+      die "download failed for $id"
+    fi
+    # A truncated or HTML error body would otherwise become a black wallpaper.
+    if [[ ! -s $tmp ]] || ! file -b --mime-type "$tmp" | grep -q '^image/'; then
+      rm -f "$tmp"
+      die "downloaded file for $id is not an image"
+    fi
+    mv -f "$tmp" "$dest"
+    chmod 644 "$dest"
+  fi
+
+  track_download "$(jq -r '.download' <<<"$photo")"
+
+  mkdir -p "$STATE_DIR"
+  jq -c --arg path "$dest" '. + {path: $path}' <<<"$photo" >"$CURRENT_FILE"
+  # Sidecar credit travels with the file, so attribution survives even if the
+  # image is later cycled to by plain `omarchy theme bg next`.
+  jq -c '{id, alt, user, userLink}' <<<"$photo" >"$dest.credit.json"
+
+  omarchy theme bg set "$dest" >/dev/null 2>&1 ||
+    omarchy-theme-bg-set "$dest" >/dev/null 2>&1 ||
+    die "failed to set background"
+
+  cmd_prune
+  printf '%s\n' "$dest"
+}
+
+cmd_apply() {
+  local arg=${1:-}
+  [[ -n $arg ]] || die "usage: omasplash apply <photo-id|photo-json>"
+  if jq -e '.id' <<<"$arg" >/dev/null 2>&1; then
+    apply_photo_json "$arg"
+  else
+    apply_photo_json "$(api "$API/photos/$(urlencode "$arg")" | jq -c "$NORMALIZE")"
+  fi
+}
+
+cmd_next() {
+  local photo
+  photo=$(cmd_random) || exit 1
+  [[ -n $photo && $photo != null ]] || die "no photo returned"
+  apply_photo_json "$photo"
+}
+
+# Keep only the newest N omasplash downloads; never touches anything without
+# our filename prefix.
+cmd_prune() {
+  local dir keep current
+  dir=$(target_dir)
+  keep=$(cfg keepLast)
+  [[ $keep =~ ^[0-9]+$ ]] || keep=20
+  ((keep > 0)) || return 0
+  current=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null)
+
+  local -a files=()
+  while IFS= read -r -d '' f; do files+=("$f"); done < <(
+    find "$dir" -maxdepth 1 -type f -name "$FILE_PREFIX*.jpg" -printf '%T@\t%p\0' 2>/dev/null |
+      sort -zrn | cut -zf2-
+  )
+  local i
+  for ((i = keep; i < ${#files[@]}; i++)); do
+    [[ ${files[$i]} == "$current" ]] && continue
+    rm -f "${files[$i]}" "${files[$i]}.credit.json"
+  done
+}
+
+cmd_current() {
+  [[ -s $CURRENT_FILE ]] && cat "$CURRENT_FILE" || echo '{}'
+}
+
+# ---------------------------------------------------------------- dispatch
+
+case "${1:-help}" in
+  topics)  shift; cmd_topics "$@" ;;
+  search)  shift; cmd_search "$@" ;;
+  photos)  shift; cmd_photos "$@" ;;
+  random)  shift; cmd_random "$@" ;;
+  apply)   shift; cmd_apply "$@" ;;
+  next)    shift; cmd_next "$@" ;;
+  prune)   shift; cmd_prune "$@" ;;
+  current) shift; cmd_current "$@" ;;
+  config)
+    shift
+    case "${1:-show}" in
+      show) ensure_config; cat "$CONFIG_FILE" ;;
+      path) echo "$CONFIG_FILE" ;;
+      get)  cfg "${2:?usage: omasplash config get <key>}" ;;
+      set)  cfg_set "${2:?usage: omasplash config set <key> <value>}" "${3-}" ;;
+      *)    die "unknown config subcommand: $1" ;;
+    esac
+    ;;
+  key)
+    shift
+    case "${1:-status}" in
+      set)    shift; key_set "${1-}" ;;
+      path)   echo "$KEY_FILE" ;;
+      status) key_present && echo "configured" || { echo "missing"; exit 1; } ;;
+      *)      die "unknown key subcommand: $1" ;;
+    esac
+    ;;
+  help | -h | --help)
+    cat <<'USAGE'
+omasplash — Unsplash wallpapers for Omarchy
+
+  omasplash key set [key]        Store your Unsplash Access Key (0600)
+  omasplash key status           Whether a key is configured
+  omasplash topics               List Unsplash topics as JSON
+  omasplash search <q> [page]    Search photos, normalized JSON
+  omasplash photos [page]        Photos for the configured topic/query
+  omasplash random               One random photo matching the config
+  omasplash apply <id|json>      Download, credit, and set as background
+  omasplash next                 Random photo per config, applied
+  omasplash current              The photo currently applied
+  omasplash prune                Trim the download folder to keepLast
+  omasplash config show|get|set  Read or edit ~/.config/omarchy/omasplash.json
+USAGE
+    ;;
+  *) die "unknown command: $1 (try: omasplash help)" ;;
+esac
