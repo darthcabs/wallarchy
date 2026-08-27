@@ -13,9 +13,9 @@ import "Model.js" as Model
 // on either of them.
 BarWidget {
   id: root
-  moduleName: "co.klair.omasplash"
+  moduleName: "co.klair.wallarchy"
 
-  readonly property string cliPath: Qt.resolvedUrl("omasplash").toString().replace(/^file:\/\//, "")
+  readonly property string cliPath: Qt.resolvedUrl("wallarchy").toString().replace(/^file:\/\//, "")
   readonly property string home: Quickshell.env("HOME")
 
   property var photo: ({})
@@ -50,7 +50,7 @@ BarWidget {
   }
 
   function openBrowser() {
-    Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "co.klair.omasplash", "{}"])
+    Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "co.klair.wallarchy", "{}"])
   }
 
   function nextWallpaper() {
@@ -74,7 +74,7 @@ BarWidget {
   implicitHeight: barSize
 
   FileView {
-    path: root.home + "/.config/omarchy/omasplash.json"
+    path: root.home + "/.config/omarchy/wallarchy.json"
     watchChanges: true
     printErrors: false
     onLoaded: root.applyConfig(text())
@@ -83,7 +83,7 @@ BarWidget {
   }
 
   FileView {
-    path: root.home + "/.local/state/omasplash/current.json"
+    path: root.home + "/.local/state/wallarchy/current.json"
     watchChanges: true
     printErrors: false
     onLoaded: root.applyCurrent(text())

@@ -33,8 +33,8 @@ Item {
   property int page: 1
   property int selectedIndex: 0
 
-  readonly property string cliPath: Qt.resolvedUrl("omasplash").toString().replace(/^file:\/\//, "")
-  readonly property string pluginId: (manifest && manifest.id) || "co.klair.omasplash"
+  readonly property string cliPath: Qt.resolvedUrl("wallarchy").toString().replace(/^file:\/\//, "")
+  readonly property string pluginId: (manifest && manifest.id) || "co.klair.wallarchy"
 
   readonly property color background: Color.menu.background
   readonly property color foreground: Color.menu.text
@@ -201,7 +201,7 @@ Item {
   ListModel { id: photoModel }
 
   FileView {
-    path: Quickshell.env("HOME") + "/.config/omarchy/omasplash.json"
+    path: Quickshell.env("HOME") + "/.config/omarchy/wallarchy.json"
     watchChanges: true
     printErrors: false
     onLoaded: root.applyConfig(text())
@@ -245,7 +245,7 @@ Item {
   }
 
   IpcHandler {
-    target: "omasplash"
+    target: "wallarchy"
     function next(): string { root.randomNow(); return "ok" }
     function browse(): string { root.open("{}"); return "ok" }
   }
@@ -257,7 +257,7 @@ Item {
     visible: root.opened
     color: "transparent"
     anchors { top: true; bottom: true; left: true; right: true }
-    WlrLayershell.namespace: "omasplash"
+    WlrLayershell.namespace: "wallarchy"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore

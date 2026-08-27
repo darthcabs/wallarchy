@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "id": "co.klair.omasplash",
-  "name": "Omasplash",
+  "id": "co.klair.wallarchy",
+  "name": "Wallarchy",
   "version": "0.1.0",
   "author": "klair",
   "license": "MIT",
   "description": "Browse Wallhaven by category or tag, set any wallpaper as your Omarchy background, and rotate on a timer.",
-  "homepage": "https://github.com/klair/omasplash",
-  "repository": "https://github.com/klair/omasplash",
+  "homepage": "https://github.com/klair/wallarchy",
+  "repository": "https://github.com/klair/wallarchy",
   "keywords": [
     "wallpaper",
     "background",
@@ -26,7 +26,7 @@
     "service": "Service.qml"
   },
   "barWidget": {
-    "displayName": "Omasplash",
+    "displayName": "Wallarchy",
     "description": "Wallhaven wallpaper browser and rotation",
     "category": "Appearance",
     "allowMultiple": false,
@@ -40,7 +40,7 @@
         "type": "boolean",
         "label": "Show wallpaper size in the bar",
         "defaultValue": false,
-        "description": "Filters and the rotation interval live in the browser overlay (~/.config/omarchy/omasplash.json), not here \u2014 they are shared with the rotation service and the CLI."
+        "description": "Filters and the rotation interval live in the browser overlay (~/.config/omarchy/wallarchy.json), not here \u2014 they are shared with the rotation service and the CLI."
       }
     ]
   }

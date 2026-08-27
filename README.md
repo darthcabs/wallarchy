@@ -1,4 +1,4 @@
-# Omasplash
+# Wallarchy
 
 Wallhaven wallpapers for [Omarchy](https://omarchy.org). Browse by category or
 tag, click a wallpaper to set it as your background, and let it rotate on a
@@ -10,7 +10,7 @@ to anonymous callers.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/klair/omasplash.git --enable --yes
+omarchy plugin add https://github.com/klair/wallarchy.git --enable --yes
 ```
 
 ## Using it
@@ -27,7 +27,7 @@ omarchy plugin add https://github.com/klair/omasplash.git --enable --yes
 Bind the overlay to a key in `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("SUPER SHIFT", "W", "omarchy-shell shell toggle co.klair.omasplash '{}'")
+o.bind("SUPER SHIFT", "W", "omarchy-shell shell toggle co.klair.wallarchy '{}'")
 ```
 
 ## How it fits Omarchy
@@ -45,7 +45,7 @@ its Wallhaven page.
 
 ## Configuration
 
-One file, `~/.config/omarchy/omasplash.json`, shared by the bar widget, the
+One file, `~/.config/omarchy/wallarchy.json`, shared by the bar widget, the
 overlay, and the rotation service:
 
 | Key | Meaning |
@@ -64,14 +64,14 @@ overlay, and the rotation service:
 Edit it in the overlay, or from the CLI:
 
 ```bash
-omasplash config show
-omasplash config set query mountains
-omasplash config set rotateMinutes 60
-omasplash config set categories 110   # general + anime
+wallarchy config show
+wallarchy config set query mountains
+wallarchy config set rotateMinutes 60
+wallarchy config set categories 110   # general + anime
 ```
 
 Everything else the plugin does is available from the same CLI —
-`omasplash help` lists it.
+`wallarchy help` lists it.
 
 ### Sketchy and NSFW results
 
@@ -80,16 +80,16 @@ accident. `110` adds Wallhaven's "sketchy" tier. The `nsfw` bit additionally
 requires an API key from your Wallhaven account settings:
 
 ```bash
-omasplash key set <api-key>
+wallarchy key set <api-key>
 ```
 
-The key is written to `~/.config/omarchy/omasplash.key` with mode 0600 and is
+The key is written to `~/.config/omarchy/wallarchy.key` with mode 0600 and is
 handed to curl over stdin, so it never appears in `shell.json` or in `ps`.
 
 ## Development
 
 The plugin is three QML surfaces over one bash CLI. All network and JSON work
-lives in `omasplash`; the QML only ever sees the normalized
+lives in `wallarchy`; the QML only ever sees the normalized
 `{id, thumb, preview, full, color, label, link, ext}` shape it prints, which is
 why swapping the image source is a single-file change.
 

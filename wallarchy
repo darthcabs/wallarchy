@@ -1,5 +1,5 @@
 #!/bin/bash
-# omasplash — Wallhaven wallpapers for Omarchy.
+# wallarchy — Wallhaven wallpapers for Omarchy.
 #
 # All network and JSON work lives here so the QML side stays a thin renderer:
 # every plugin surface (bar widget, overlay, rotation service) shells out to
@@ -12,19 +12,19 @@
 
 set -uo pipefail
 
-CONFIG_FILE="${OMASPLASH_CONFIG:-$HOME/.config/omarchy/omasplash.json}"
-KEY_FILE="${OMASPLASH_KEY_FILE:-$HOME/.config/omarchy/omasplash.key}"
-STATE_DIR="${OMASPLASH_STATE_DIR:-$HOME/.local/state/omasplash}"
+CONFIG_FILE="${WALLARCHY_CONFIG:-$HOME/.config/omarchy/wallarchy.json}"
+KEY_FILE="${WALLARCHY_KEY_FILE:-$HOME/.config/omarchy/wallarchy.key}"
+STATE_DIR="${WALLARCHY_STATE_DIR:-$HOME/.local/state/wallarchy}"
 CURRENT_FILE="$STATE_DIR/current.json"
 API="https://wallhaven.cc/api/v1"
 
-# Every file omasplash writes carries this prefix, so pruning can never touch
+# Every file wallarchy writes carries this prefix, so pruning can never touch
 # a wallpaper that came with the theme or that the user dropped in by hand.
 FILE_PREFIX="wallhaven-"
 
 CONFIG_VERSION=2
 
-die() { echo "omasplash: $*" >&2; exit 1; }
+die() { echo "wallarchy: $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- config
 
@@ -51,7 +51,7 @@ ensure_config() {
     version=$(jq -r '.version // 0' "$CONFIG_FILE" 2>/dev/null || echo 0)
     [[ $version == "$CONFIG_VERSION" ]] && return 0
     cp -f "$CONFIG_FILE" "$CONFIG_FILE.bak" 2>/dev/null
-    echo "omasplash: config was schema v$version, replaced with v$CONFIG_VERSION (old copy at $CONFIG_FILE.bak)" >&2
+    echo "wallarchy: config was schema v$version, replaced with v$CONFIG_VERSION (old copy at $CONFIG_FILE.bak)" >&2
   fi
   mkdir -p "$(dirname "$CONFIG_FILE")"
   printf '%s\n' "$DEFAULT_CONFIG" >"$CONFIG_FILE"
@@ -152,7 +152,7 @@ cmd_photos() {
 
 cmd_search() {
   local query=${1:-} page=${2:-1}
-  [[ -n $query ]] || die "usage: omasplash search <query> [page]"
+  [[ -n $query ]] || die "usage: wallarchy search <query> [page]"
   api "$API/search?$(search_params)&q=$(urlencode "$query")&page=$page" |
     jq -c "[.data[] | $NORMALIZE]"
 }
@@ -226,7 +226,7 @@ apply_photo_json() {
 
 cmd_apply() {
   local arg=${1:-}
-  [[ -n $arg ]] || die "usage: omasplash apply <wallpaper-id|photo-json>"
+  [[ -n $arg ]] || die "usage: wallarchy apply <wallpaper-id|photo-json>"
   if jq -e '.id' <<<"$arg" >/dev/null 2>&1; then
     apply_photo_json "$arg"
   else
@@ -241,7 +241,7 @@ cmd_next() {
   apply_photo_json "$photo"
 }
 
-# Keep only the newest N omasplash downloads; never touches anything without
+# Keep only the newest N wallarchy downloads; never touches anything without
 # our filename prefix.
 cmd_prune() {
   local dir keep current
@@ -282,8 +282,8 @@ case "${1:-help}" in
     case "${1:-show}" in
       show) ensure_config; cat "$CONFIG_FILE" ;;
       path) echo "$CONFIG_FILE" ;;
-      get)  cfg "${2:?usage: omasplash config get <key>}" ;;
-      set)  cfg_set "${2:?usage: omasplash config set <key> <value>}" "${3-}" ;;
+      get)  cfg "${2:?usage: wallarchy config get <key>}" ;;
+      set)  cfg_set "${2:?usage: wallarchy config set <key> <value>}" "${3-}" ;;
       *)    die "unknown config subcommand: $1" ;;
     esac
     ;;
@@ -298,18 +298,18 @@ case "${1:-help}" in
     ;;
   help | -h | --help)
     cat <<'USAGE'
-omasplash — Wallhaven wallpapers for Omarchy
+wallarchy — Wallhaven wallpapers for Omarchy
 
-  omasplash photos [page]        Wallpapers matching the config, normalized JSON
-  omasplash search <q> [page]    Search, ignoring the configured query
-  omasplash random               One random wallpaper matching the config
-  omasplash apply <id|json>      Download and set as background
-  omasplash next                 Random wallpaper per config, applied
-  omasplash current              The wallpaper currently applied
-  omasplash prune                Trim the download folder to keepLast
-  omasplash config show|get|set  Read or edit ~/.config/omarchy/omasplash.json
-  omasplash key set [key]        Optional API key, only needed for NSFW results
+  wallarchy photos [page]        Wallpapers matching the config, normalized JSON
+  wallarchy search <q> [page]    Search, ignoring the configured query
+  wallarchy random               One random wallpaper matching the config
+  wallarchy apply <id|json>      Download and set as background
+  wallarchy next                 Random wallpaper per config, applied
+  wallarchy current              The wallpaper currently applied
+  wallarchy prune                Trim the download folder to keepLast
+  wallarchy config show|get|set  Read or edit ~/.config/omarchy/wallarchy.json
+  wallarchy key set [key]        Optional API key, only needed for NSFW results
 USAGE
     ;;
-  *) die "unknown command: $1 (try: omasplash help)" ;;
+  *) die "unknown command: $1 (try: wallarchy help)" ;;
 esac

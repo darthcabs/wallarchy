@@ -1,6 +1,6 @@
 .pragma library
 
-// Shared helpers for the Omasplash plugin surfaces. Anything that is pure
+// Shared helpers for the Wallarchy plugin surfaces. Anything that is pure
 // data shaping lives here so BarWidget, Browser, and Service agree on it.
 
 // Wallhaven has no topics endpoint, so the chips are a curated list rather
@@ -145,7 +145,7 @@ function barTooltip(state) {
   var lines = []
   lines.push(state.photo && state.photo.id
     ? "Wallhaven " + state.photo.id + (state.photo.label ? " · " + state.photo.label : "")
-    : "Omasplash")
+    : "Wallarchy")
   lines.push(state.query ? "Search: " + state.query : "Filter: " + categoryLabel(state.categories))
   lines.push(state.rotateMinutes > 0
     ? "Rotating every " + intervalLabel(state.rotateMinutes)

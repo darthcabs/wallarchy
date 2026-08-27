@@ -18,8 +18,8 @@ Item {
   property var shell: null
   property var manifest: null
 
-  readonly property string cliPath: Qt.resolvedUrl("omasplash").toString().replace(/^file:\/\//, "")
-  readonly property string statePath: Quickshell.env("HOME") + "/.local/state/omasplash/rotation.json"
+  readonly property string cliPath: Qt.resolvedUrl("wallarchy").toString().replace(/^file:\/\//, "")
+  readonly property string statePath: Quickshell.env("HOME") + "/.local/state/wallarchy/rotation.json"
 
   property int rotateMinutes: 0
   property double lastRotatedMs: 0
@@ -93,7 +93,7 @@ Item {
   }
 
   FileView {
-    path: Quickshell.env("HOME") + "/.config/omarchy/omasplash.json"
+    path: Quickshell.env("HOME") + "/.config/omarchy/wallarchy.json"
     watchChanges: true
     printErrors: false
     onLoaded: root.applyConfig(text())
