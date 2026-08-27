@@ -33,6 +33,11 @@ Item {
   property int page: 1
   property int selectedIndex: 0
 
+  // Signature of the config values that determine what the grid shows. The
+  // config file is a shared surface — the CLI and the bar widget write it too
+  // — so the watcher, not the click handler, is what decides to re-query.
+  property string filterSignature: ""
+
   readonly property string cliPath: Qt.resolvedUrl("wallarchy").toString().replace(/^file:\/\//, "")
   readonly property string pluginId: (manifest && manifest.id) || "co.klair.wallarchy"
 
@@ -74,12 +79,21 @@ Item {
     atleast = typeof config.atleast === "string" ? config.atleast : ""
     var minutes = Number(config.rotateMinutes)
     rotateMinutes = isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0
+
+    // Toggling rotation must not throw away a grid the user is scrolling, so
+    // only a change to the query-shaping values counts as a reason to reload.
+    var signature = [query, categories, sorting, atleast].join("|")
+    var changed = filterSignature !== "" && filterSignature !== signature
+    filterSignature = signature
+
     // Don't yank the field out from under someone mid-type; the config file
     // is only authoritative for the search box while it is unfocused.
     if (!searchField.activeFocus) {
       filterText = query
       searchField.text = query
     }
+
+    if (changed) reload()
   }
 
   // Config changes are written through the CLI rather than edited in place, so
@@ -87,15 +101,14 @@ Item {
   // document instead of a half-written one.
   property var configQueue: []
 
-  function setConfig(key, value, thenReload) {
-    configQueue.push({ key: key, value: String(value), reload: thenReload === true })
+  function setConfig(key, value) {
+    configQueue.push({ key: key, value: String(value) })
     drainConfigQueue()
   }
 
   function drainConfigQueue() {
     if (configProcess.running || configQueue.length === 0) return
     var job = configQueue.shift()
-    configProcess.pendingReload = job.reload
     configProcess.command = [root.cliPath, "config", "set", job.key, job.value]
     configProcess.running = true
   }
@@ -138,7 +151,6 @@ Item {
     var next = Model.singleLine(value, 120)
     root.query = next
     setConfig("query", next)
-    reload()
   }
 
   function selectTag(tag) {
@@ -146,7 +158,6 @@ Item {
     root.filterText = tag
     searchField.text = tag
     setConfig("query", tag)
-    reload()
   }
 
   function toggleCategory(index) {
@@ -154,21 +165,18 @@ Item {
     if (next === root.categories) return
     root.categories = next
     setConfig("categories", next)
-    reload()
   }
 
   function cycleSorting() {
     var next = Model.nextIn(Model.SORTINGS, root.sorting)
     root.sorting = next
     setConfig("sorting", next)
-    reload()
   }
 
   function cycleResolution() {
     var next = Model.nextIn(Model.RESOLUTIONS, root.atleast)
     root.atleast = next
     setConfig("atleast", next)
-    reload()
   }
 
   function cycleInterval() {
@@ -201,11 +209,13 @@ Item {
   ListModel { id: photoModel }
 
   FileView {
+    id: configView
     path: Quickshell.env("HOME") + "/.config/omarchy/wallarchy.json"
     watchChanges: true
     printErrors: false
     onLoaded: root.applyConfig(text())
-    onFileChanged: reload()
+    // Qualified: root has a reload() of its own that re-queries the grid.
+    onFileChanged: configView.reload()
     onLoadFailed: root.applyConfig("{}")
   }
 
@@ -236,12 +246,8 @@ Item {
 
   Process {
     id: configProcess
-    property bool pendingReload: false
     command: []
-    onExited: {
-      if (pendingReload) root.reload()
-      root.drainConfigQueue()
-    }
+    onExited: root.drainConfigQueue()
   }
 
   IpcHandler {

@@ -7,11 +7,31 @@ timer.
 No account, no API key, no signup — Wallhaven's search API serves SFW results
 to anonymous callers.
 
+![Wallarchy browsing Wallhaven](preview.png)
+
 ## Install
 
 ```bash
 omarchy plugin add https://github.com/perminder-klair/wallarchy.git --enable --yes
 ```
+
+### Removal
+
+```bash
+omarchy plugin remove co.klair.wallarchy --yes
+```
+
+That takes the widget out of the bar and deletes the plugin directory. Removal
+leaves your files alone by design, so delete anything you no longer want:
+
+```bash
+rm -f ~/.config/omarchy/wallarchy.json ~/.config/omarchy/wallarchy.key
+rm -rf ~/.local/state/wallarchy
+rm -f ~/.config/omarchy/backgrounds/*/wallhaven-*        # downloaded wallpapers
+```
+
+If a downloaded wallpaper is the one currently applied, pick another with
+`omarchy theme bg next` before deleting it.
 
 ## Using it
 
@@ -97,6 +117,36 @@ The overlay sets `keepLoaded: true`, so its window survives between summons —
 `omarchy-shell shell rescanPlugins` will not pick up edits to `Browser.qml`.
 Use `omarchy restart shell` after changing it.
 
+## What it touches
+
+Wallarchy never edits Omarchy's own configuration. It writes only:
+
+| Path | When |
+|------|------|
+| `~/.config/omarchy/wallarchy.json` | Its own settings, on any filter change |
+| `~/.config/omarchy/wallarchy.key` | Only if you set an API key (mode 0600) |
+| `~/.local/state/wallarchy/` | Which wallpaper is applied, and rotation timing |
+| `~/.config/omarchy/backgrounds/<theme>/wallhaven-*` | Downloaded wallpapers |
+
+Setting a background calls `omarchy theme bg set`, the stock command. Pruning
+is limited to files matching `wallhaven-*` in the download folder, and skips
+the wallpaper currently in use.
+
+The bar-widget entry in `shell.json` is added and removed by Omarchy's own
+`omarchy plugin enable` / `disable`, not by this plugin.
+
 ## Requirements
 
 `curl`, `jq`, and `file` — all present on a stock Omarchy install.
+
+### External services
+
+Images and metadata come from [Wallhaven](https://wallhaven.cc) via its public
+API at `wallhaven.cc/api/v1`. Requests are anonymous unless you set an API key.
+Thumbnails are loaded directly from Wallhaven's CDN; full images are downloaded
+only when you apply one. No other network calls are made, and nothing is sent
+anywhere about you.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
